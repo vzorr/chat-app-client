@@ -122,6 +122,24 @@ const ChatView = ({
 
   const messageGroups = groupMessagesByDate(messages);
 
+  // Extract text from message
+  const getMessageText = (message) => {
+    if (typeof message.text === 'string') {
+      return message.text;
+    }
+    if (message.content && typeof message.content === 'object') {
+      return message.content.text || '';
+    }
+    if (message.text && typeof message.text === 'object') {
+      return message.text.text || '';
+    }
+    return '';
+  };
+
+  console.log('ChatView - Messages:', messages);
+  console.log('ChatView - Current User:', currentUser);
+  console.log('ChatView - Other User:', otherUser);
+
   return (
     <div className="chat-panel">
       {/* Chat Header */}
@@ -179,24 +197,36 @@ const ChatView = ({
               </span>
             </div>
             
-            {dateMessages.map(message => (
-              <div
-                key={message.id}
-                className={`message-item ${message.senderId === currentUser.id ? 'own-message' : ''}`}
-              >
-                <div className={`message-bubble ${
-                  message.senderId === currentUser.id ? 'own' : 'other'
-                } ${message.status === 'pending' ? 'pending' : ''} ${
-                  message.status === 'failed' ? 'failed' : ''
-                }`}>
-                  <p className="message-text">{message.text}</p>
-                  <div className="message-time">
-                    {formatTime(message.timestamp)}
-                    {message.senderId === currentUser.id && getStatusIcon(message.status)}
+            {dateMessages.map(message => {
+              const isOwnMessage = message.senderId === currentUser.id;
+              const messageText = getMessageText(message);
+              
+              console.log('Rendering message:', {
+                id: message.id,
+                text: messageText,
+                isOwnMessage,
+                status: message.status
+              });
+              
+              return (
+                <div
+                  key={message.id}
+                  className={`message-item ${isOwnMessage ? 'own-message' : ''}`}
+                >
+                  <div className={`message-bubble ${
+                    isOwnMessage ? 'own' : 'other'
+                  } ${message.status === 'pending' ? 'pending' : ''} ${
+                    message.status === 'failed' ? 'failed' : ''
+                  }`}>
+                    <p className="message-text">{messageText}</p>
+                    <div className="message-time">
+                      {formatTime(message.timestamp)}
+                      {isOwnMessage && getStatusIcon(message.status)}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ))}
         <div ref={messagesEndRef} />

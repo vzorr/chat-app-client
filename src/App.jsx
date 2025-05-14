@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ConversationsList from './ConversationsList';
-import ChatView from './ChatView';
-import SocketService from '../services/SocketService';
-import AuthService from '../services/AuthService';
-import '../App.css';
+import ConversationsList from './components/ConversationsList';
+import ChatView from './components/ChatView';
+import SocketService from './services/SocketService';
+import AuthService from './services/AuthService';
+import './App.css';
 
 const ChatApp = ({ currentUser, allUsers, onLogout }) => {
   const [messages, setMessages] = useState([]);
@@ -14,38 +14,40 @@ const ChatApp = ({ currentUser, allUsers, onLogout }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const socketRef = useRef(new SocketService());
-  const pendingMessagesRef = useRef(new Map());
 
   useEffect(() => {
     const initUser = async () => {
       try {
         setIsLoading(true);
-        console.log(`🔐 Fetching token for user: ${currentUser.email}`);
+        console.log(`🔐 Initializing user: ${currentUser.email}`);
+        
+        // Fetch token for current user
         const token = await AuthService.fetchTokenForUser(currentUser);
-
-        console.log(`✅ Token fetched for user: ${currentUser.email}`);
+        console.log(`✅ Token fetched for ${currentUser.email}`);
+        
+        // Setup conversations for other users
         const otherUsers = allUsers.filter(u => u.id !== currentUser.id);
         setConversations(otherUsers.map(user => ({
-          id: `conv-${user.id}`,
+          id: user.id,  // Use user ID as conversation ID for simplicity
           user,
           lastMessage: null,
           timestamp: new Date(),
           unreadCount: 0
         })));
 
+        // Connect to socket server
         socketRef.current.connect(
           token,
           () => {
             console.log('✅ Connected to server');
-            socketRef.current.emit('connection_status');
           },
           (reason) => {
-            console.warn('❌ Disconnected from server:', reason);
+            console.warn('❌ Disconnected:', reason);
           }
         );
 
       } catch (error) {
-        console.error('❌ Failed to initialize user:', error);
+        console.error('❌ Failed to initialize:', error);
       } finally {
         setIsLoading(false);
       }
@@ -54,87 +56,137 @@ const ChatApp = ({ currentUser, allUsers, onLogout }) => {
     initUser();
 
     return () => {
-      console.warn('👋 Cleaning up socket connection and listeners...');
       socketRef.current.disconnect();
     };
   }, [currentUser, allUsers]);
 
-  // Presence and connection events
+  // Socket event listeners
   useEffect(() => {
     if (!currentUser) return;
-    const socket = socketRef.current;
+    const socketService = socketRef.current;
 
-    socket.on('user_online', (data) => {
-      console.log('📡 User online:', data);
-      setOnlineUsers(prev => ({ ...prev, [data.id]: true }));
-    });
-
-    socket.on('user_offline', (data) => {
-      console.log('🔕 User offline:', data);
-      setOnlineUsers(prev => ({ ...prev, [data.id]: false }));
-    });
-
-    socket.on('connection_established', (data) => {
-      console.log('🎯 Connection established:', data);
-    });
-
-    socket.on('connection_success', (data) => {
-      console.log('🎯 Connection success:', data);
-    });
-
-    socket.on('connection_status_response', (data) => {
-      console.log('🔄 Connection status response:', data);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error(`🚨 Connection error: ${error.message}`);
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [currentUser]);
-
-  // Message events (server driven)
-  useEffect(() => {
-    if (!currentUser) return;
-    const socket = socketRef.current;
-
-    socket.on('message_sent', (data) => {
-      console.log('📨 Message sent confirmation:', data);
-      const originalMessage = Array.from(pendingMessagesRef.current.values())
-        .find(msg => msg.clientTempId === data.clientTempId);
-
-      if (originalMessage) {
-        setMessages(prev => [...prev, {
-          id: data.messageId,
-          text: originalMessage.text,
-          senderId: originalMessage.senderId,
-          receiverId: originalMessage.receiverId,
-          timestamp: new Date(data.timestamp),
-          status: 'sent',
-          serverConfirmed: true,
-          conversationId: data.conversationId
-        }]);
-
-        pendingMessagesRef.current.delete(data.clientTempId);
+    // Handle incoming messages
+    const handleNewMessage = (message) => {
+      console.log('📥 New message:', message);
+      console.log('📥 Current user ID:', currentUser.id);
+      console.log('📥 Message senderId:', message.senderId);
+      console.log('📥 Message receiverId:', message.receiverId);
+      
+      // Don't process our own messages - they're already in the state
+      if (message.senderId === currentUser.id) {
+        console.log('📥 Ignoring own message');
+        return;
       }
-    });
-
-    socket.on('new_message', (message) => {
-      console.log('📥 New message received:', message);
-      setMessages(prev => [...prev, {
-        id: message.messageId,
-        text: message.content,
+      
+      // Extract text from message content
+      let messageText = '';
+      if (typeof message.content === 'string') {
+        messageText = message.content;
+      } else if (message.content && typeof message.content === 'object') {
+        messageText = message.content.text || '';
+      } else if (message.text) {
+        messageText = message.text;
+      }
+      
+      const newMessage = {
+        id: message.messageId || message.id,
+        text: messageText,
         senderId: message.senderId,
         receiverId: message.receiverId,
-        timestamp: new Date(message.timestamp),
+        timestamp: new Date(message.timestamp || message.createdAt),
         status: 'delivered',
-        serverConfirmed: true,
-        conversationId: message.conversationId
-      }]);
-    });
-  }, [currentUser]);
+        content: message.content,
+        serverConfirmed: true
+      };
+      
+      console.log('📥 Adding message to state:', newMessage);
+      setMessages(prev => [...prev, newMessage]);
+      
+      // Update conversation last message
+      setConversations(prev => prev.map(conv => {
+        if (conv.user.id === message.senderId) {
+          return {
+            ...conv,
+            lastMessage: {
+              text: messageText,
+              timestamp: newMessage.timestamp,
+              isFromMe: false
+            },
+            unreadCount: conv.id === activeConversation ? 0 : conv.unreadCount + 1,
+            serverConversationId: message.conversationId
+          };
+        }
+        return conv;
+      }));
+    };
+
+    // Handle message sent confirmation
+    const handleMessageSent = (data) => {
+      console.log('📨 Message sent:', data);
+      
+      // Update message status, don't create a new message
+      setMessages(prev => prev.map(msg => {
+        if (msg.tempId === data.clientTempId) {
+          return {
+            ...msg,
+            id: data.messageId,
+            status: 'delivered', // Set to delivered
+            timestamp: new Date(data.timestamp),
+            serverConfirmed: true
+          };
+        }
+        return msg;
+      }));
+      
+      // Update conversation's server ID if provided
+      if (data.conversationId) {
+        setConversations(prev => prev.map(conv => {
+          if (conv.user.id === data.receiverId) {
+            return { ...conv, serverConversationId: data.conversationId };
+          }
+          return conv;
+        }));
+      }
+    };
+
+    // Handle online/offline status
+    const handleUserOnline = (data) => {
+      console.log('🟢 User online:', data);
+      const userId = data.id || data.userId;
+      setOnlineUsers(prev => ({ ...prev, [userId]: true }));
+    };
+
+    const handleUserOffline = (data) => {
+      console.log('🔴 User offline:', data);
+      const userId = data.id || data.userId;
+      setOnlineUsers(prev => ({ ...prev, [userId]: false }));
+    };
+
+    // Handle typing indicators
+    const handleTyping = (data) => {
+      const userId = data.userId || data.senderId;
+      setTypingUsers(prev => ({ ...prev, [userId]: data.isTyping }));
+    };
+
+    // Register event listeners using SocketService's on method
+    socketService.on('new_message', handleNewMessage);
+    socketService.on('message_sent', handleMessageSent);
+    socketService.on('user_online', handleUserOnline);
+    socketService.on('user_offline', handleUserOffline);
+    socketService.on('typing', handleTyping);
+
+    // Cleanup - since SocketService doesn't have an off method, we'll handle it differently
+    return () => {
+      // Check if the actual socket exists and has the off method
+      if (socketService.socket && socketService.socket.off) {
+        socketService.socket.off('new_message', handleNewMessage);
+        socketService.socket.off('message_sent', handleMessageSent);
+        socketService.socket.off('user_online', handleUserOnline);
+        socketService.socket.off('user_offline', handleUserOffline);
+        socketService.socket.off('typing', handleTyping);
+      }
+    };
+  }, [currentUser, activeConversation]);
 
   const handleSendMessage = (text) => {
     if (!activeConversation) return;
@@ -145,38 +197,58 @@ const ChatApp = ({ currentUser, allUsers, onLogout }) => {
     const tempId = `temp-${Date.now()}`;
     const message = {
       id: tempId,
-      text,
+      tempId,
+      text: text,
       senderId: currentUser.id,
       receiverId: conversation.user.id,
       timestamp: new Date(),
-      status: 'pending',
-      clientTempId: tempId,
-      serverConfirmed: false
+      status: 'pending'
     };
 
+    // Add to messages immediately (optimistic update)
     setMessages(prev => [...prev, message]);
-    pendingMessagesRef.current.set(tempId, message);
 
+    // Send via socket - backend expects structured content
     socketRef.current.emit('send_message', {
-      text,
       receiverId: conversation.user.id,
-      conversationId: conversation.serverConversationId || `conv-${conversation.user.id}`,
+      content: {
+        text: text,
+        images: [],
+        audio: null,
+        replyTo: null,
+        attachments: []
+      },
       type: 'text',
       clientTempId: tempId
     });
+
+    // Update conversation last message
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === activeConversation) {
+        return {
+          ...conv,
+          lastMessage: {
+            text: text,
+            timestamp: new Date(),
+            isFromMe: true
+          }
+        };
+      }
+      return conv;
+    }));
   };
 
   const handleConversationClick = (conversation) => {
     setActiveConversation(conversation.id);
-    setConversations(prev => prev.map(conv => conv.id === conversation.id ? { ...conv, unreadCount: 0 } : conv));
-  };
-
-  const handleBack = () => {
-    setActiveConversation(null);
+    
+    // Mark messages as read
+    setConversations(prev => prev.map(conv => 
+      conv.id === conversation.id ? { ...conv, unreadCount: 0 } : conv
+    ));
   };
 
   const activeConversationData = conversations.find(c => c.id === activeConversation);
-  const filteredMessages = activeConversationData ? messages.filter(msg =>
+  const filteredMessages = activeConversationData ? messages.filter(msg => 
     (msg.senderId === currentUser.id && msg.receiverId === activeConversationData.user.id) ||
     (msg.senderId === activeConversationData.user.id && msg.receiverId === currentUser.id)
   ) : [];
@@ -213,10 +285,15 @@ const ChatApp = ({ currentUser, allUsers, onLogout }) => {
             otherUser={activeConversationData.user}
             messages={filteredMessages}
             onSendMessage={handleSendMessage}
-            onTyping={(isTyping) => socketRef.current.emit('typing', { conversationId: activeConversationData.id, isTyping })}
+            onTyping={(isTyping) => {
+              socketRef.current.emit('typing', { 
+                receiverId: activeConversationData.user.id, 
+                isTyping 
+              });
+            }}
             isOtherUserOnline={onlineUsers[activeConversationData.user.id] || false}
             isOtherUserTyping={typingUsers[activeConversationData.user.id] || false}
-            onBack={handleBack}
+            onBack={() => setActiveConversation(null)}
           />
         ) : (
           <div className="no-conversation">

@@ -2,6 +2,11 @@ import React from 'react';
 import { Check, CheckCheck, Clock } from 'lucide-react';
 
 const MessageItem = ({ message, isOwnMessage }) => {
+  // Extract text from message
+  const messageText = typeof message.text === 'object' && message.text?.text 
+    ? message.text.text 
+    : message.text || '';
+
   // Determine the status icon to display
   const getStatusIcon = () => {
     if (!isOwnMessage) return null;
@@ -42,7 +47,7 @@ const MessageItem = ({ message, isOwnMessage }) => {
       <div className={`max-w-xs px-4 py-2 rounded-lg ${
         isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
       } ${message.status === 'pending' ? 'opacity-70' : ''}`}>
-        <p>{message.text}</p>
+        <p>{messageText}</p>
         <div className="flex items-center gap-1 text-xs mt-1 opacity-70">
           <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
           {isOwnMessage && (

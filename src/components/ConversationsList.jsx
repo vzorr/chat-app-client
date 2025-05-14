@@ -33,6 +33,17 @@ const ConversationsList = ({
     }
   };
 
+  const getLastMessageText = (lastMessage) => {
+    if (!lastMessage) return '';
+    
+    // Handle structured content
+    if (typeof lastMessage.text === 'object' && lastMessage.text?.text) {
+      return lastMessage.text.text;
+    }
+    
+    return lastMessage.text || '';
+  };
+
   return (
     <>
       {/* Header */}
@@ -101,7 +112,7 @@ const ConversationsList = ({
                 {conversation.lastMessage ? (
                   <>
                     {conversation.lastMessage.isFromMe && <span>You: </span>}
-                    {conversation.lastMessage.text}
+                    {getLastMessageText(conversation.lastMessage)}
                   </>
                 ) : (
                   <span style={{ fontStyle: 'italic' }}>No messages yet</span>
