@@ -1,18 +1,56 @@
 export const SERVER_URL = 'http://localhost:5000';
 
+// This can be replaced with an API call to fetch users from database
+export const fetchUsersFromDatabase = async () => {
+  // Example: Replace this with your actual API call
+  // const response = await fetch(`${SERVER_URL}/api/users`);
+  // return await response.json();
+  
+  // For now, return static users
+  return USERS;
+};
+
 export const USERS = [
   {
-    id: "7e2d6b1a-1bc3-462a-7cbd-8cae450d1d64",
-    name: "majid",
+    id: "a07b2a2e-2c18-4e3b-91f7-57e2f2a69b5f",
+    name: "Majid",
     email: "majid@aibsol.com",
     phone: "+1234567890",
-    token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjdlMmQ2YjFhLTFiYzMtNDYyYS03Y2JkLThjYWU0NTBkMWQ2NCIsImVtYWlsIjoibWFqaWRAYWlic29sLmNvbSIsInBhc3N3b3JkIjoicXdlcnR5IiwiaWF0IjoxNzQ3MTU4NzExLCJleHAiOjE3NDcxOTQ3MTF9.PfVR0cC9kq0Y8C54lL0hhOq0o5E1f6mWNW07zpYmoTk"
   },
   {
-    id: "7e2d6b1a-1bc3-462a-7cbd-8cae450d1d63",
-    name: "cynosureksa",
+    id: "b08b2b2e-4d29-5f4b-81f7-57e2f2b79c6f",
+    name: "Cynosureksa",
     email: "cynosureksa@gmail.com",
     phone: "+1234567891",
-    token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjdlMmQ2YjFhLTFiYzMtNDYyYS03Y2JkLThjYWU0NTBkMWQ2MyIsImVtYWlsIjoiY3lub3N1cmVrc2FAZ21haWwuY29tIiwicGFzc3dvcmQiOiIxMjMiLCJpYXQiOjE3NDcxNTg3MjUsImV4cCI6MTc0NzE5NDcyNX0.CaoV28h_0Vda92Pqg8OP9Y_lX2Zl8YruHcC6z6adFi4"
+  },
+  {
+    id: "c9d53f1e-3a75-4e82-8437-4f0c1457c739",
+    name: "John Doe",
+    email: "john@example.com",
+    phone: "+1234567892",
+  },
+  {
+    id: "e79868f2-d7b5-4ab8-9632-b6d54a13f31b",
+    name: "Alice Smith",
+    email: "alice.smith@example.com",
+    phone: "+1234567893",
+  },
+  {
+    id: "f0f2dfde-3c24-4d7b-bbfd-8e317ec76cf5",
+    name: "Bob Johnson",
+    email: "bob.johnson@example.com",
+    phone: "+1234567894",
+  },
+  {
+    id: "d9136d2e-b0f7-4d13-b154-d3f3b2b8ed08",
+    name: "Eve Adams",
+    email: "eve.adams@example.com",
+    phone: "+1234567895",
+  },
+  {
+    id: "28d664e4-c3d2-48bc-b456-19014b9d66d1",
+    name: "Charlie Brown",
+    email: "charlie.brown@example.com",
+    phone: "+1234567896",
   }
 ];

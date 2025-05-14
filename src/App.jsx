@@ -1,231 +1,234 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import ChatPanel from './components/ChatPanel';
-import SocketService from './services/SocketService';
-import AuthService from './services/AuthService';
-import { USERS as STATIC_USERS } from './utils/constants';
+import React, { useState, useEffect, useRef } from 'react';
+import ConversationsList from './ConversationsList';
+import ChatView from './ChatView';
+import SocketService from '../services/SocketService';
+import AuthService from '../services/AuthService';
+import '../App.css';
 
-const App = () => {
-  const [users, setUsers] = useState([]);
+const ChatApp = ({ currentUser, allUsers, onLogout }) => {
   const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState({});
   const [typingUsers, setTypingUsers] = useState({});
-  const [conversationId, setConversationId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const user1SocketRef = useRef(new SocketService());
-  const user2SocketRef = useRef(new SocketService());
+  const socketRef = useRef(new SocketService());
+  const pendingMessagesRef = useRef(new Map());
 
-  // Fetch signed tokens for users from token generator server
-  const fetchTokens = useCallback(async () => {
-    try {
-      const updatedUsers = await Promise.all(
-        STATIC_USERS.map(async user => ({
-          ...user,
-          token: await AuthService.fetchTokenForUser(user)
-        }))
-      );
-      setUsers(updatedUsers);
-      console.log('✅ Tokens fetched and users updated');
-    } catch (error) {
-      console.error('❌ Failed to fetch tokens:', error);
-    }
-  }, []);
+  useEffect(() => {
+    const initUser = async () => {
+      try {
+        setIsLoading(true);
+        console.log(`🔐 Fetching token for user: ${currentUser.email}`);
+        const token = await AuthService.fetchTokenForUser(currentUser);
 
-  // Initialize the chat sockets after users are loaded with tokens
-  const initializeChat = useCallback(() => {
-    if (users.length < 2) return;
+        console.log(`✅ Token fetched for user: ${currentUser.email}`);
+        const otherUsers = allUsers.filter(u => u.id !== currentUser.id);
+        setConversations(otherUsers.map(user => ({
+          id: `conv-${user.id}`,
+          user,
+          lastMessage: null,
+          timestamp: new Date(),
+          unreadCount: 0
+        })));
 
-    try {
-      const syncPromises = users.map(user => AuthService.syncUser(user.token));
-      Promise.all(syncPromises).then(() => {
-        console.log('✅ Users synced successfully');
+        socketRef.current.connect(
+          token,
+          () => {
+            console.log('✅ Connected to server');
+            socketRef.current.emit('connection_status');
+          },
+          (reason) => {
+            console.warn('❌ Disconnected from server:', reason);
+          }
+        );
 
-        setupUserSocket(user1SocketRef.current, users[0], users[1], '1');
-        setupUserSocket(user2SocketRef.current, users[1], users[0], '2');
-      });
-    } catch (error) {
-      console.error('❌ Failed to initialize chat:', error);
-    }
-  }, [users]);
-
-  const setupUserSocket = (socket, currentUser, otherUser, userNum) => {
-    socket.connect(
-      currentUser.token,
-      () => {
-        console.log(`✅ User ${userNum} connected`);
-        socket.emit('set_presence', { status: 'online' });
-      },
-      () => {
-        console.log(`❌ User ${userNum} disconnected`);
+      } catch (error) {
+        console.error('❌ Failed to initialize user:', error);
+      } finally {
+        setIsLoading(false);
       }
-    );
+    };
 
-    socket.on('connection_established', (data) => {
-      console.log(`User ${userNum} connection established:`, data);
-    });
+    initUser();
 
-    socket.on('new_message', (message) => {
-      console.log(`User ${userNum} received message:`, message);
-      setMessages(prev => [...prev, {
-        id: message.id,
-        text: message.content.text,
-        senderId: message.senderId,
-        receiverId: message.receiverId,
-        timestamp: new Date(message.createdAt),
-        status: message.status
-      }]);
-    });
+    return () => {
+      console.warn('👋 Cleaning up socket connection and listeners...');
+      socketRef.current.disconnect();
+    };
+  }, [currentUser, allUsers]);
 
-    socket.on('message_sent', (data) => {
-      console.log(`User ${userNum} message sent confirmation:`, data);
-      if (data.conversationId) {
-        setConversationId(data.conversationId);
-      }
-    });
+  // Presence and connection events
+  useEffect(() => {
+    if (!currentUser) return;
+    const socket = socketRef.current;
 
     socket.on('user_online', (data) => {
-      console.log(`User ${userNum} received online status:`, data);
+      console.log('📡 User online:', data);
       setOnlineUsers(prev => ({ ...prev, [data.id]: true }));
     });
 
     socket.on('user_offline', (data) => {
-      console.log(`User ${userNum} received offline status:`, data);
+      console.log('🔕 User offline:', data);
       setOnlineUsers(prev => ({ ...prev, [data.id]: false }));
     });
 
-    socket.on('user_typing', (data) => {
-      console.log(`User ${userNum} received typing status:`, data);
-      setTypingUsers(prev => ({ ...prev, [data.userId]: data.isTyping }));
-      if (!data.isTyping) {
-        setTimeout(() => {
-          setTypingUsers(prev => ({ ...prev, [data.userId]: false }));
-        }, 1000);
-      }
+    socket.on('connection_established', (data) => {
+      console.log('🎯 Connection established:', data);
     });
 
-    socket.on('presence_status', (data) => {
-      console.log(`User ${userNum} received presence status:`, data);
-      if (data.presence) {
-        Object.entries(data.presence).forEach(([userId, presence]) => {
-          setOnlineUsers(prev => ({ ...prev, [userId]: presence?.isOnline || false }));
-        });
-      }
+    socket.on('connection_success', (data) => {
+      console.log('🎯 Connection success:', data);
     });
-  };
 
-  useEffect(() => {
-    fetchTokens();
-  }, [fetchTokens]);
+    socket.on('connection_status_response', (data) => {
+      console.log('🔄 Connection status response:', data);
+    });
 
-  useEffect(() => {
-    initializeChat();
+    socket.on('connect_error', (error) => {
+      console.error(`🚨 Connection error: ${error.message}`);
+    });
+
     return () => {
-      user1SocketRef.current.disconnect();
-      user2SocketRef.current.disconnect();
+      socket.disconnect();
     };
-  }, [initializeChat]);
+  }, [currentUser]);
 
-  // Send message handlers
-  const handleSendMessageUser1 = (text) => {
-    const tempId = `temp-${Date.now()}`;
-    const message = {
-      id: tempId,
-      text,
-      senderId: users[0].id,
-      receiverId: users[1].id,
-      timestamp: new Date(),
-      status: 'sent',
-      clientTempId: tempId
-    };
-
-    setMessages(prev => [...prev, message]);
-
-    user1SocketRef.current.emit('send_message', {
-      text,
-      receiverId: users[1].id,
-      conversationId,
-      type: 'text',
-      clientTempId: tempId
-    });
-  };
-
-  const handleSendMessageUser2 = (text) => {
-    const tempId = `temp-${Date.now()}`;
-    const message = {
-      id: tempId,
-      text,
-      senderId: users[1].id,
-      receiverId: users[0].id,
-      timestamp: new Date(),
-      status: 'sent',
-      clientTempId: tempId
-    };
-
-    setMessages(prev => [...prev, message]);
-
-    user2SocketRef.current.emit('send_message', {
-      text,
-      receiverId: users[0].id,
-      conversationId,
-      type: 'text',
-      clientTempId: tempId
-    });
-  };
-
-  // Typing handlers
-  const handleTypingUser1 = (isTyping) => {
-    if (conversationId) {
-      user1SocketRef.current.emit('typing', { conversationId, isTyping });
-    }
-  };
-
-  const handleTypingUser2 = (isTyping) => {
-    if (conversationId) {
-      user2SocketRef.current.emit('typing', { conversationId, isTyping });
-    }
-  };
-
+  // Message events (server driven)
   useEffect(() => {
-    if (!users[0] || !users[1]) return;
+    if (!currentUser) return;
+    const socket = socketRef.current;
 
-    const interval = setInterval(() => {
-      user1SocketRef.current.emit('get_presence', { userIds: [users[1].id] });
-      user2SocketRef.current.emit('get_presence', { userIds: [users[0].id] });
-    }, 5000);
+    socket.on('message_sent', (data) => {
+      console.log('📨 Message sent confirmation:', data);
+      const originalMessage = Array.from(pendingMessagesRef.current.values())
+        .find(msg => msg.clientTempId === data.clientTempId);
 
-    return () => clearInterval(interval);
-  }, [users]);
+      if (originalMessage) {
+        setMessages(prev => [...prev, {
+          id: data.messageId,
+          text: originalMessage.text,
+          senderId: originalMessage.senderId,
+          receiverId: originalMessage.receiverId,
+          timestamp: new Date(data.timestamp),
+          status: 'sent',
+          serverConfirmed: true,
+          conversationId: data.conversationId
+        }]);
 
-  if (!users[0] || !users[1]) return <div>Loading users and tokens...</div>;
+        pendingMessagesRef.current.delete(data.clientTempId);
+      }
+    });
+
+    socket.on('new_message', (message) => {
+      console.log('📥 New message received:', message);
+      setMessages(prev => [...prev, {
+        id: message.messageId,
+        text: message.content,
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+        timestamp: new Date(message.timestamp),
+        status: 'delivered',
+        serverConfirmed: true,
+        conversationId: message.conversationId
+      }]);
+    });
+  }, [currentUser]);
+
+  const handleSendMessage = (text) => {
+    if (!activeConversation) return;
+
+    const conversation = conversations.find(c => c.id === activeConversation);
+    if (!conversation) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const message = {
+      id: tempId,
+      text,
+      senderId: currentUser.id,
+      receiverId: conversation.user.id,
+      timestamp: new Date(),
+      status: 'pending',
+      clientTempId: tempId,
+      serverConfirmed: false
+    };
+
+    setMessages(prev => [...prev, message]);
+    pendingMessagesRef.current.set(tempId, message);
+
+    socketRef.current.emit('send_message', {
+      text,
+      receiverId: conversation.user.id,
+      conversationId: conversation.serverConversationId || `conv-${conversation.user.id}`,
+      type: 'text',
+      clientTempId: tempId
+    });
+  };
+
+  const handleConversationClick = (conversation) => {
+    setActiveConversation(conversation.id);
+    setConversations(prev => prev.map(conv => conv.id === conversation.id ? { ...conv, unreadCount: 0 } : conv));
+  };
+
+  const handleBack = () => {
+    setActiveConversation(null);
+  };
+
+  const activeConversationData = conversations.find(c => c.id === activeConversation);
+  const filteredMessages = activeConversationData ? messages.filter(msg =>
+    (msg.senderId === currentUser.id && msg.receiverId === activeConversationData.user.id) ||
+    (msg.senderId === activeConversationData.user.id && msg.receiverId === currentUser.id)
+  ) : [];
+
+  if (isLoading) {
+    return (
+      <div className="app-loading">
+        <div className="spinner"></div>
+        <p>Loading Chat...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen bg-gray-900">
-      {/* User 1 Panel */}
-      <div className="flex-1 border-r border-gray-700">
-        <ChatPanel
-          currentUser={users[0]}
-          otherUser={users[1]}
-          messages={messages}
-          onSendMessage={handleSendMessageUser1}
-          onTyping={handleTypingUser1}
-          isOtherUserOnline={onlineUsers[users[1].id] || false}
-          isOtherUserTyping={typingUsers[users[1].id] || false}
+    <div className="whatsapp-container">
+      <div className={`conversations-panel ${activeConversation ? 'mobile-hidden' : ''}`}>
+        <ConversationsList
+          conversations={conversations}
+          currentUser={currentUser}
+          onConversationClick={handleConversationClick}
+          activeConversation={activeConversation}
+          onlineUsers={onlineUsers}
+          onLogout={() => {
+            socketRef.current.disconnect();
+            onLogout();
+          }}
         />
       </div>
 
-      {/* User 2 Panel */}
-      <div className="flex-1">
-        <ChatPanel
-          currentUser={users[1]}
-          otherUser={users[0]}
-          messages={messages}
-          onSendMessage={handleSendMessageUser2}
-          onTyping={handleTypingUser2}
-          isOtherUserOnline={onlineUsers[users[0].id] || false}
-          isOtherUserTyping={typingUsers[users[0].id] || false}
-        />
+      <div className={`chat-panel ${!activeConversation ? 'mobile-hidden' : ''}`}>
+        {activeConversationData ? (
+          <ChatView
+            currentUser={currentUser}
+            otherUser={activeConversationData.user}
+            messages={filteredMessages}
+            onSendMessage={handleSendMessage}
+            onTyping={(isTyping) => socketRef.current.emit('typing', { conversationId: activeConversationData.id, isTyping })}
+            isOtherUserOnline={onlineUsers[activeConversationData.user.id] || false}
+            isOtherUserTyping={typingUsers[activeConversationData.user.id] || false}
+            onBack={handleBack}
+          />
+        ) : (
+          <div className="no-conversation">
+            <div className="no-conversation-content">
+              <h2>WhatsApp Clone</h2>
+              <p>Select a conversation to start messaging</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-export default App;
+export default ChatApp;

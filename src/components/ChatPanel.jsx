@@ -10,7 +10,8 @@ const ChatPanel = ({
   onSendMessage, 
   onTyping,
   isOtherUserOnline,
-  isOtherUserTyping
+  isOtherUserTyping,
+  socket
 }) => {
   const messagesEndRef = useRef(null);
 
@@ -18,10 +19,22 @@ const ChatPanel = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const filteredMessages = messages.filter(
-    msg => (msg.senderId === currentUser.id && msg.receiverId === otherUser.id) ||
-           (msg.senderId === otherUser.id && msg.receiverId === currentUser.id)
-  );
+  // Filter messages to show only those that belong to this conversation
+  // For sent messages: show immediately as pending
+  // For received messages: only show if server confirmed
+  const filteredMessages = messages.filter(msg => {
+    // Show messages sent by current user to other user
+    if (msg.senderId === currentUser.id && msg.receiverId === otherUser.id) {
+      return true;
+    }
+    
+    // Only show received messages if they're server confirmed
+    if (msg.senderId === otherUser.id && msg.receiverId === currentUser.id) {
+      return msg.serverConfirmed === true;
+    }
+    
+    return false;
+  });
 
   return (
     <div className="flex-1 flex flex-col h-screen">
@@ -30,6 +43,7 @@ const ChatPanel = ({
         isCurrentUser={true} 
         isOtherUserOnline={isOtherUserOnline}
         isOtherUserTyping={isOtherUserTyping}
+        socket={socket}
       />
       <div className="flex-1 overflow-y-auto bg-gray-900 p-4">
         {filteredMessages.map(msg => (

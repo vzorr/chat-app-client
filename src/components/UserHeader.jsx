@@ -1,27 +1,34 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Circle, Wifi, WifiOff } from 'lucide-react';
-import SocketService from '../services/SocketService';
-import { USERS } from '../utils/constants';
 
-const UserHeader = ({ user, isCurrentUser, isOtherUserOnline, isOtherUserTyping }) => {
-  const [isConnected, setIsConnected] = useState(true);
-  const socketRef = useRef(new SocketService());
+const UserHeader = ({ user, isCurrentUser, isOtherUserOnline, isOtherUserTyping, socket }) => {
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    if (socket) {
+      setIsConnected(socket.isConnected());
+      
+      // Listen for connection status changes
+      const handleConnect = () => setIsConnected(true);
+      const handleDisconnect = () => setIsConnected(false);
+      
+      socket.on('connect', handleConnect);
+      socket.on('disconnect', handleDisconnect);
+      
+      return () => {
+        socket.off('connect', handleConnect);
+        socket.off('disconnect', handleDisconnect);
+      };
+    }
+  }, [socket]);
 
   const handleConnectionToggle = () => {
     if (isConnected) {
-      socketRef.current.emit('set_presence', { status: 'offline' });
-      setTimeout(() => socketRef.current.disconnect(), 100);
+      socket.emit('set_presence', { status: 'offline' });
+      setTimeout(() => socket.disconnect(), 100);
     } else {
-      const currentUser = USERS.find(u => u.id === user.id);
-      if (currentUser) {
-        socketRef.current.connect(
-          currentUser.token,
-          () => socketRef.current.emit('set_presence', { status: 'online' }),
-          () => {}
-        );
-      }
+      socket.reconnect();
     }
-    setIsConnected(!isConnected);
   };
 
   return (
@@ -43,12 +50,12 @@ const UserHeader = ({ user, isCurrentUser, isOtherUserOnline, isOtherUserTyping 
           <h3 className="font-semibold">{user.name}</h3>
           <p className="text-xs text-gray-400">
             {isCurrentUser 
-              ? (isConnected ? 'Online' : 'Offline') 
+              ? (isConnected ? 'Connected' : 'Disconnected') 
               : (isOtherUserTyping ? 'Typing...' : (isOtherUserOnline ? 'Online' : 'Offline'))}
           </p>
         </div>
       </div>
-      {isCurrentUser && (
+      {isCurrentUser && socket && (
         <button 
           onClick={handleConnectionToggle}
           className={`p-2 rounded ${
